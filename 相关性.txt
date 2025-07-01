@@ -1,0 +1,8 @@
+library(corrplot)
+library(caret) 
+library(pROC) 
+library(ggplot2)
+data20[,c(1:23)] <-lapply(data20[,c(1:23)],as.numeric)
+p.cor=cor(data20)
+corrplot.mixed(p.cor)
+
