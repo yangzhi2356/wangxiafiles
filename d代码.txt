@@ -1,0 +1,1179 @@
+library(caret) 
+library(pROC) 
+library(ggplot2)
+library(haven)
+library(readxl)
+library(glmnet)
+library(caret)
+library(pROC)
+library(ggplot2)
+library(caret)
+library(ggplot2)
+library(randomForest) 
+library(neuralnet)
+library(dplyr)
+library(caret)
+library(nnet)
+library(pROC)
+library(ggplot2)
+library(PRROC)
+library(PRROC)
+########################################################################################################33
+
+data=read.csv("8.7data1.csv",header = T,encoding = "GBK")
+head(data)
+str(data)
+data[,c(1:16)] <-lapply(data[,c(1:16)],as.factor)
+summary(data) 
+
+############################################################3
+str(data)
+psych::describe(data)
+
+#原始数据集 data 中选择特定的列，按照指定的顺序创建一个新的数据框 data2
+data2 <- data[,-c(3,10,13,15)]
+psych::describe(data2)
+
+#####################################################
+
+#挑选子集
+data2_no_dm<- subset(data2, dm_cat == "3")
+data2_dm_no_hp  <- subset(data2, dm_cat == "1") 
+data2_dm_with_hp<- subset(data2, dm_cat == "2")
+#重新组合子集
+task1_data <- rbind(data2_no_dm,data2_dm_no_hp)
+task2_data <- rbind(data2_no_dm,data2_dm_with_hp)
+task3_data <- rbind(data2_dm_with_hp,data2_dm_no_hp)
+
+task1_data$dm_cat <- ifelse(task1_data$dm_cat == 1, 1, ifelse(task1_data$dm_cat == 3,0, task1_data$dm_cat))
+task2_data$dm_cat <- ifelse(task2_data$dm_cat == 2, 1, ifelse(task2_data$dm_cat == 3, 0, task2_data$dm_cat))
+task3_data$dm_cat <- ifelse(task3_data$dm_cat == 1, 0, ifelse(task3_data$dm_cat == 2, 1, task3_data$dm_cat))
+
+task1_data[,c(1:12)] <-lapply(task1_data[,c(1:12)],as.factor)
+task2_data[,c(1:12)] <-lapply(task2_data[,c(1:12)],as.factor)
+task3_data[,c(1:12)] <-lapply(task3_data[,c(1:12)],as.factor)
+
+summary(task1_data)
+summary(task2_data)
+summary(task3_data)
+
+
+##########################################################################################tsak1  同变量logistic
+##############################################
+# 设置随机种子
+set.seed(123)#123#199
+#平衡训练集数据
+task1_data2 = SMOTE(dm_cat ~ ., 
+                    task1_data, 
+                    k=5,#用于生成少数类别新实例的近邻个数。
+                    perc.over = 100,#用于决定从少数群体中产生多少额外案例130
+                    perc.under= 200)#决定从少数群体中生成的每个案例要从多数群体中选择多少额外案例
+
+
+##########################################################################8.22_task1_平衡数据
+
+task1_data2[,c(1:12)] <-lapply(task1_data2[,c(1:12)],as.factor)
+summary(task1_data2) 
+str(task1_data2)
+
+
+########################################################################分训练集和测试集
+set.seed(2327)#123#1260.79#2327,0.76#2366,0.82,#2368,0.83#000012#23，0.726
+
+trainIndex <- createDataPartition(task1_data2$dm_cat, p = 0.9, 
+                                  list = FALSE, 
+                                  times = 1)
+trainData <- task1_data2[trainIndex, ]
+testData <- task1_data2[-trainIndex, ]
+summary(trainData)
+
+##########################################################################################################################3
+##########################################################################logistic
+# 训练逻辑回归模型 
+logistic_model <- glm(dm_cat ~ ., data = trainData, family = binomial) 
+# 预测 
+pred_prob <- predict(logistic_model, newdata = testData, type = "response") 
+pred_class <- ifelse(pred_prob > 0.5, 1, 0) 
+
+##########################################################
+
+# 计算准确度、敏感性、特异性 
+confusionMatrix <- confusionMatrix(as.factor(pred_class), as.factor(testData$dm_cat)) 
+accuracy <- confusionMatrix$overall['Accuracy'] 
+sensitivity <- confusionMatrix$byClass['Sensitivity'] 
+specificity <- confusionMatrix$byClass['Specificity']
+
+# 计算AUC值
+roc_task1_log <- roc(testData$dm_cat, pred_prob)
+auc_value <- auc(roc_task1_log)
+
+#######
+
+# 输出结果
+cat("Accuracy:", accuracy, "\n")
+cat("Sensitivity:", sensitivity, "\n")
+cat("Specificity:", specificity, "\n")
+cat("AUC:", auc_value, "\n")
+
+
+###################################################
+
+#################### Add Precision-Recall Metrics############
+# Add to existing evaluation code
+# Calculate precision-recall AUC
+pr_auc <- pr.curve(
+  scores.class0 = pred_prob[testData$dm_cat == 1],
+  scores.class1 = pred_prob[testData$dm_cat == 0],
+  curve = TRUE
+)
+
+# Update results dataframe
+results <- data.frame(
+  Accuracy = accuracy,
+  Sensitivity = sensitivity,
+  Specificity = specificity,
+  ROC_AUC = auc_value,
+  PR_AUC = pr_auc$auc.integral,
+  F1_Score = confusionMatrix$byClass['F1']
+)
+results
+
+
+#####################################################
+
+#########3Precision-Recall
+
+# ROC and Precision-Recall Analysis
+Recall_task1_log <- pr.curve(scores.class0 = pred_prob[testData$dm_cat == 1],
+                             scores.class1 = pred_prob[testData$dm_cat == 0],
+                             curve = TRUE)
+
+Recall_task1_log
+plot(Recall_task1_log, col = "#c04851", main = "Precision Recall Curve", lwd = 2,)
+legend("bottomright", legend=c("Logistic regression PR(AUC=0.780)"), col=c("#c04851"),lwd=2,cex = 0.7)
+
+#ci.auc(roc_task1_log)
+# 打印模型性能
+results <- data.frame(Accuracy = accuracy, Sensitivity = sensitivity, Specificity = specificity, AUC = auc_value)
+print(results)
+
+
+# 保留三位小数
+results <- as.data.frame(lapply(results, function(x) round(x, 3)))
+
+# 打印结果
+print(results)
+
+
+plot(roc_task1_log, main = "task1 ROC")
+
+plot(roc_task1_log, col = "#c04851", main = " task1 ROC", lwd = 2,)
+
+
+########################################################333
+
+
+
+#########################################################################################
+###########包括 AUC、准确率、灵敏度和特异性的 95% 置信区间###########
+# 加载必要的库
+library(dplyr)
+library(pROC)
+library(caret)
+library(boot)
+# 设置随机种子以确保结果可重复
+set.seed(23)
+
+# 构建逻辑回归模型
+logit_model <- glm(dm_cat  ~ ., data = trainData, family = binomial)
+
+# 生成预测概率
+trainData$predicted_prob <- predict(logit_model, type = "response")
+#testData$predicted_prob <- predict(logit_model, type = "response")
+summary(trainData)
+
+############################3
+# 预测 
+pred_prob <- predict(logistic_model, newdata = testData, type = "response") 
+pred_class <- ifelse(pred_prob > 0.5, 1, 0) 
+
+# 计算准确度、敏感性、特异性 
+confusionMatrix <- confusionMatrix(as.factor(pred_class), as.factor(testData$dm_cat)) 
+
+###################################333
+
+# 计算性能指标
+confusion_matrix <- confusionMatrix(as.factor(ifelse(trainData$predicted_prob > 0.5, 1, 0)), trainData$dm_cat )
+
+#confusion_matrix <- confusionMatrix(as.factor(ifelse(testData$predicted_prob > 0.5, 1, 0)), testData$dm_cat )
+#testData
+# 提取性能指标
+accuracy <- confusion_matrix$overall['Accuracy']
+sensitivity <- confusion_matrix$byClass['Sensitivity']
+specificity <- confusion_matrix$byClass['Specificity']
+
+# 计算 AUC
+roc_result <- roc(trainData$dm_cat , trainData$predicted_prob)
+auc_value <- auc(roc_result)
+
+roc_result <- roc(testData$dm_cat, pred_prob)
+auc_value <- auc(roc_result)
+
+##################附加
+# 输出结果
+cat("Accuracy:", accuracy, "\n")
+cat("Sensitivity:", sensitivity, "\n")
+cat("Specificity:", specificity, "\n")
+cat("AUC:", auc_value, "\n")
+#####################33附件
+
+# roc_task1_log
+ci_auc <- ci.auc(roc_result)
+
+########################################33
+##########################################################################logistic95%
+########################################################################logistic95%
+# 训练逻辑回归模型 
+logistic_model <- glm(dm_cat ~ ., data = trainData, family = binomial) 
+# 预测 
+pred_prob <- predict(logistic_model, newdata = testData, type = "response") 
+pred_class <- ifelse(pred_prob > 0.5, 1, 0) 
+
+##########################################################
+
+# 计算准确度、敏感性、特异性 
+confusionMatrix <- confusionMatrix(as.factor(pred_class), as.factor(testData$dm_cat)) 
+accuracy <- confusionMatrix$overall['Accuracy'] 
+sensitivity <- confusionMatrix$byClass['Sensitivity'] 
+specificity <- confusionMatrix$byClass['Specificity']
+
+# 计算AUC值
+# roc_task1_log <- roc(testData$dm_cat, pred_prob)
+# auc_value <- auc(roc_task1_log)
+roc_result <- roc(testData$dm_cat, pred_prob)
+auc_value <- auc(roc_result)
+# 计算 95% 置信区间
+ci_auc <- ci.auc(roc_result)
+
+# 定义计算准确率、灵敏度和特异性的函数
+boot_function <- function(testData, indices, metric) {
+  cm <- confusionMatrix(as.factor(testData$predicted[indices]), 
+                        as.factor(testData$actual[indices]))
+  return(cm$byClass[metric])
+}
+
+# 创建预测和实际结果的 data.frame
+results_df <- data.frame(
+  predicted = ifelse(pred_prob > 0.5, 1, 0),
+  actual = testData$dm_cat 
+)
+
+# 计算 95% 置信区间
+ci_accuracy <- boot(results_df, function(testData, indices) {
+  cm <- confusionMatrix(as.factor(testData$predicted[indices]), as.factor(testData$actual[indices]))
+  return(cm$overall['Accuracy'])
+}, R = 10)
+
+ci_sensitivity <- boot(results_df, function(testData, indices) {
+  cm <- confusionMatrix(as.factor(testData$predicted[indices]), as.factor(testData$actual[indices]))
+  return(cm$byClass['Sensitivity'])
+}, R = 10)
+
+ci_specificity <- boot(results_df, function(testData, indices) {
+  cm <- confusionMatrix(as.factor(testData$predicted[indices]), as.factor(testData$actual[indices]))
+  return(cm$byClass['Specificity'])
+}, R = 10)
+
+# 创建性能表
+performance_table <- data.frame(
+  Metric = c("AUC", "Accuracy", "Sensitivity", "Specificity"),
+  Estimate = c(auc_value, accuracy, sensitivity, specificity),
+  CI_Lower = c(ci_auc[1], boot.ci(ci_accuracy)$basic[4], boot.ci(ci_sensitivity)$basic[4], boot.ci(ci_specificity)$basic[4]),
+  CI_Upper = c(ci_auc[3], boot.ci(ci_accuracy)$basic[5], boot.ci(ci_sensitivity)$basic[5], boot.ci(ci_specificity)$basic[5])
+)
+
+# 查看性能表
+print(performance_table)
+
+
+
+
+
+#########################################################33
+#########置换重要性（Permutation Importance）#################
+summary(trainData)
+trainData[,c(1:11)] <-lapply(trainData[,c(1:11)],as.numeric)
+
+trainData$dm_cat <- factor(trainData$dm_cat, 
+                           levels = c(0,1), 
+                           labels = c("No_DM", "DM"))
+
+# 构建随机森林模型
+rf_model_task1 <- randomForest(dm_cat ~ ., data = trainData, importance = TRUE)
+
+# 查看模型结果
+print(rf_model_task1)
+
+# 提取变量重要性
+importance_rf <- importance(rf_model_task1)
+importance_df <- as.data.frame(importance_rf)
+# 加载必要的库
+library(randomForest)
+library(dplyr)
+library(ggplot2)
+library(permute)
+
+# 使用置换重要性计算
+set.seed(123)
+perm_importance <- randomForest::importance(rf_model_task1, type = 1, scale = TRUE)
+
+# 计算 95% 置信区间
+# 引入 permute 包的 permute 函数
+n_replicates <- 5
+perm_results <- array(NA, c(n_replicates, ncol(trainData) - 1))
+
+for (i in 1:n_replicates) {
+  permuted_data <- trainData
+  permuted_data$dm_cat <- sample(permuted_data$dm_cat)
+  rf_perm <- randomForest(dm_cat ~ ., data = permuted_data, importance = TRUE)
+  perm_importance <- importance(rf_perm)
+  perm_results[i, ] <- perm_importance[, 1]
+}
+
+# 计算均值和置信区间
+perm_means <- apply(perm_results, 2, mean)
+perm_ci_lower <- apply(perm_results, 2, function(x) quantile(x, 0.025))
+perm_ci_upper <- apply(perm_results, 2, function(x) quantile(x, 0.975))
+
+# 创建数据框以便于可视化
+perm_importance_df <- data.frame(
+  Variable = rownames(importance_rf),
+  Mean = perm_means,
+  CI_Lower = perm_ci_lower,
+  CI_Upper = perm_ci_upper
+)
+importance_rf
+# 可视化结果
+ggplot(perm_importance_df, aes(x = reorder(Variable, Mean), y = Mean)) +
+  geom_col(fill = "#15559a") +
+  geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper), width = 0.2) +
+  coord_flip() +
+  labs(title = "Permutation Importance of Predictors",
+       x = "Predictors",
+       y = "Mean Importance") +
+  theme_minimal()
+
+
+
+##########################################################33
+rf_model_task1 <- randomForest(dm_cat ~ ., data = trainData, mtry = 2, ntree = 100)  
+importance <- importance(rf_model_task1)  
+importance_df <- as.data.frame(importance)  
+importance_df$Variable <- row.names(importance_df)   
+
+# 绘制变量重要性  
+p1<-ggplot(importance_df, aes(x = reorder(Variable, -MeanDecreaseGini), y = MeanDecreaseGini, fill = MeanDecreaseGini)) +  
+  geom_bar(stat = "identity") +  
+  labs(x="" ,y = "Importance ", title = "Task 1") +  
+  theme_minimal() +  
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 10)  # hjust=0.5使标题居中，size=10设置字体大小
+  ) +
+  coord_flip()
+
+coord_flip()
+
+
+
+p1
+
+ggplot(importance_df, aes(x = reorder(Variable, -MeanDecreaseGini), y = MeanDecreaseGini, fill = MeanDecreaseGini)) +  
+  geom_bar(stat = "identity") +  
+  labs(x = "", y = "Importance", title = "task 1") +  
+  theme_minimal() +  
+  theme(
+    panel.background = element_blank(),  # 去除背景
+    plot.background = element_blank(),   # 去除图形背景
+    legend.position = "none"             # 去除图例
+  ) +  
+  coord_flip()
+
+##################################################################
+
+
+
+
+################################################################################################随机森林
+##############################################
+# 设置随机种子
+set.seed(123)#123#199
+#平衡训练集数据
+task1_data2 = SMOTE(dm_cat ~ ., 
+                    task1_data, 
+                    k=5,#用于生成少数类别新实例的近邻个数。
+                    perc.over = 100,#用于决定从少数群体中产生多少额外案例130
+                    perc.under= 200)#决定从少数群体中生成的每个案例要从多数群体中选择多少额外案例
+
+table(task1_data2$dm_cat)
+summary(task1_data2)
+
+set.seed(2327)#123#1260.79#2327,0.76#2366,0.82,#2368,0.83，9995，0.777#000012
+
+trainIndex <- createDataPartition(task1_data2$dm_cat, p = 0.9, 
+                                  list = FALSE, 
+                                  times = 1)
+trainData <- task1_data2[trainIndex, ]
+testData <- task1_data2[-trainIndex, ]
+##################################################################3
+# 训练随机森林模型  
+rfModel <- randomForest(dm_cat ~ ., data = trainData, ntree = 500, importance = TRUE)  
+# 预测测试集  
+predictions <- predict(rfModel, newdata = testData, type = "class")  
+# 计算混淆矩阵  
+confusionMatrix <- confusionMatrix(predictions, testData$dm_cat)  
+# 从混淆矩阵中提取准确性、特异性、敏感性  
+accuracy <- confusionMatrix$byClass['Accuracy']  
+sensitivity <- confusionMatrix$byClass['Sensitivity']  
+specificity <- confusionMatrix$byClass['Specificity']  
+TP <- confusionMatrix$table[2, 2]  
+TN <- confusionMatrix$table[1, 1]  
+FP <- confusionMatrix$table[1, 2]  
+FN <- confusionMatrix$table[2, 1]  
+sensitivity_manual <- TP / (TP + FN)  
+specificity_manual <- TN / (TN + FP)  
+accuracy_manual <- (TN+TP )/ (TN + FP+FN+TP)
+# 计算AUC（通常使用预测概率和ROC曲线）  
+# 由于随机森林给出的是类别预测，我们需要使用predict函数的'prob'选项来获取概率  
+probs <- predict(rfModel, newdata = testData, type = "prob")  
+# 提取属于类别'1'的概率  
+probs_class1 <- probs[, 2]  
+# 使用ROC函数计算AUC  
+roc_randomForest <- roc(testData$dm_cat, probs_class1)  
+auc_value <- auc(roc_randomForest)  
+
+# 汇报结果  
+cat("Accuracy:", accuracy_manual, "\n")  
+cat("Sensitivity (Manually Calculated):", sensitivity_manual, "\n")  
+cat("Specificity (Manually Calculated):", specificity_manual, "\n")  
+cat("AUC:", auc_value, "\n")
+
+# ##############################################################################随机森林95%
+
+#########3Precision-Recall
+
+# ROC and Precision-Recall Analysis
+Recall_task1_FR <- pr.curve(scores.class0 = pred_prob[testData$dm_cat == 1],
+                            scores.class1 = pred_prob[testData$dm_cat == 0],
+                            curve = TRUE)
+
+Recall_task1_FR
+plot(Recall_task1_FR, col = "#15559a")  # 将颜色修改为蓝色
+plot(Recall_task1_FR, col = "#15559a", main = "Precision Recall Curve", lwd = 2,)
+legend("bottomright", legend=c("Random forest PR(AUC=0.780"), col=c("#15559a"),lwd=2,cex = 0.7)
+
+
+
+
+# 在同一图上添加第二个ROC曲线  
+
+plot(roc_task1_log, col = "#c04851", main = " task1 ROC", lwd = 2,)
+lines(roc_randomForest, col="#15559a", lwd=2, lty = 1) 
+# 可以添加图例  
+legend("bottomright", legend=c("Logistic regression", "Random forest"), col=c("#c04851", "#15559a"), lwd=2,cex = 0.5)
+
+
+
+############################################################################随机森林校准曲线
+trainData[,c(1:11)] <-lapply(trainData[,c(1:11)],as.numeric)
+
+set.seed(2366)#123#1260.79#2327,0.76#2366,0.82,#2368,0.83，9995，0.777#000012
+
+trainIndex <- createDataPartition(task1_data2$dm_cat, p = 0.9, 
+                                  list = FALSE, 
+                                  times = 1)
+trainData <- task1_data2[trainIndex, ]
+testData <- task1_data2[-trainIndex, ]
+
+
+
+############################################################3
+
+# 训练随机森林模型  
+rfModel <- randomForest(dm_cat ~ ., data = trainData, ntree = 500, importance = TRUE)  
+# 预测测试集  
+#predictions <- predict(rfModel, newdata = testData, type = "class")  
+
+# 生成预测概率
+#trainData$predicted_prob <- predict(rfModel, type = "response")
+
+# 计算混淆矩阵  
+# 由于随机森林给出的是类别预测，我们需要使用predict函数的'prob'选项来获取概率  
+probs <- predict(rfModel, newdata = testData, type = "prob")  
+# 提取属于类别'1'的概率  
+probs_class1 <- probs[, 2]  
+# 使用ROC函数计算AUC  
+roc_randomForest <- roc(testData$dm_cat, probs_class1)  
+auc_value <- auc(roc_randomForest)  
+##################################################################3
+# 构建逻辑回归模型
+# logit_model <- glm(dm_cat  ~ ., data = trainData, family = binomial)
+# 
+# # 生成预测概率
+# trainData$predicted_prob <- predict(logit_model, type = "response")
+
+#计算 Brier score
+brier_score <- mean((pred_class - as.numeric(testData$dm_cat ))^2)
+
+brier_score <- mean((trainData$predicted_prob - as.numeric(trainData$dm_cat ))^2)
+print(paste("Brier Score:", brier_score))
+
+
+# 计算校准斜率
+calibration_info <- hoslem.test(as.numeric(trainData$dm_cat ), trainData$predicted_prob)
+
+calibration_slope <- calibration_info$statistic
+print(paste("Calibration Slope:", calibration_slope))
+
+# 绘制校准图
+calibration_plot_data <- trainData %>% 
+  mutate(predicted_bin = cut(predicted_prob, breaks = seq(0, 1, by = 0.1), include.lowest = TRUE)) %>%
+  group_by(predicted_bin) %>%
+  summarise(
+    mean_predicted = mean(predicted_prob),
+    observed = mean(as.numeric(dm_cat ))
+  )
+
+# 绘制校准图
+ggplot(calibration_plot_data, aes(x = mean_predicted, y = observed)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+  geom_line() +
+  labs(title = "Calibration Plot",
+       x = "Mean Predicted Probability",
+       y = "Observed Probability") +
+  theme_minimal()
+########################################################33
+
+# 绘制校准图
+ggplot(calibration_plot_data, aes(x = mean_predicted, y = observed)) +
+  geom_point(size=1) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dotdash", color = "black") +
+  geom_line(linewidth=0.65) +
+  labs(title = "Calibration Plot",
+       x = "Mean Predicted Probability",
+       y = "Observed Probability") +
+  theme_minimal()
+
+
+
+
+
+
+################################3%#####################################置信区间
+rfModel <- randomForest(dm_cat ~ ., data = trainData, ntree = 500, importance = TRUE)  
+
+# 预测测试集  
+predictions <- predict(rfModel, newdata = testData, type = "class")  
+
+# 计算混淆矩阵  
+confusionMatrix <- confusionMatrix(predictions, testData$dm_cat)  
+
+#############################
+
+
+
+############################################################################################333#lasso_lasso95%
+# 设置随机种子
+set.seed(123)#123#199
+#平衡训练集数据
+task1_data2 = SMOTE(dm_cat ~ ., 
+                    task1_data, 
+                    k=5,#用于生成少数类别新实例的近邻个数。
+                    perc.over = 100,#用于决定从少数群体中产生多少额外案例130
+                    perc.under= 200)#决定从少数群体中生成的每个案例要从多数群体中选择多少额外案例
+
+task1_data2[,c(1:12)] <-lapply(task1_data2[,c(1:12)],as.factor)
+
+summary(task1_data2) 
+str(task1_data2)
+
+set.seed(2366)#123#1260.79#2327,0.76#2366,0.82,#2368,0.83，9995，0.777#000012
+
+trainIndex <- createDataPartition(task1_data2$dm_cat, p = 0.9,
+                                  list = FALSE,
+                                  times = 1)
+trainData <- task1_data2[trainIndex, ]
+testData <- task1_data2[-trainIndex, ]
+
+# trainData[,c(1:12)] <-lapply(trainData[,c(1:12)],as.numeric)#-1
+# trainData[,c(1:12)] <-lapply(trainData[,c(1:12)]-1,as.numeric)#-1
+# 
+# testData[,c(1:12)] <-lapply(testData[,c(1:12)],as.numeric)#-1
+# testData[,c(1:12)] <-lapply(testData[,c(1:12)]-1,as.numeric)#-1
+# 准备数据
+x_train <- as.matrix(trainData[,-12])
+y_train <- trainData$dm_cat
+x_test <- as.matrix(testData[,-12])
+y_test <- testData$dm_cat
+
+
+
+# 训练LASSO模型
+lasso_model <- cv.glmnet(x_train, y_train, alpha = 1, family = "binomial")
+
+# 预测
+pred_prob <- predict(lasso_model, s = "lambda.min", newx = x_test, type = "response")
+pred_class <- ifelse(pred_prob > 0.5, 1, 0)
+
+# 计算准确度、敏感性、特异性
+confusionMatrix <- confusionMatrix(as.factor(pred_class), as.factor(y_test))
+accuracy <- confusionMatrix$overall['Accuracy']
+sensitivity <- confusionMatrix$byClass['Sensitivity']
+specificity <- confusionMatrix$byClass['Specificity']
+
+# 计算AUC值
+roc_lasso <- roc(y_test, pred_prob)
+auc_value <- auc(roc_lasso)
+
+# 输出结果
+cat("Accuracy:", accuracy, "\n")
+cat("Sensitivity:", sensitivity, "\n")
+cat("Specificity:", specificity, "\n")
+cat("AUC:", auc_value, "\n")
+
+
+#############################################################################3
+
+
+                              
+                    
+################### Add Precision-Recall Metrics############
+# Add to existing evaluation code
+# Calculate precision-recall AUC
+pr_auc <- pr.curve(
+  scores.class0 = pred_prob[testData$dm_cat == 1],
+  scores.class1 = pred_prob[testData$dm_cat == 0],
+  curve = TRUE
+)
+
+# Update results dataframe
+results <- data.frame(
+  Accuracy = accuracy,
+  Sensitivity = sensitivity,
+  Specificity = specificity,
+  ROC_AUC = auc_value,
+  PR_AUC = pr_auc$auc.integral,
+  F1_Score = confusionMatrix$byClass['F1']
+)
+results
+#################################################3
+# ROC and Precision-Recall Analysis
+Recall_task1_LASSO <- pr.curve(scores.class0 = pred_prob[testData$dm_cat == 1],
+                               scores.class1 = pred_prob[testData$dm_cat == 0],
+                               curve = TRUE)
+
+Recall_task1_LASSO
+plot(Recall_task1_LASSO, col = "#6B6B6B", main = "Precision Recall Curve LASSO", lwd = 2,)
+legend("bottomright", legend=c("Laaso PR(AUC=0.813)"), col=c("#6B6B6B"),lwd=2,cex = 0.7)
+
+
+plot(roc_task1_log, main = "task1 ROC")
+plot(roc_task1_log, col = "#c04851", main = "task1 ROC", lwd = 2,)
+# 在同一图上添加第二个ROC曲线  
+lines(roc_randomForest, col="#15559a", lwd=2) 
+lines(roc_lasso, col="#6B6B6B", lwd=2) 
+
+# 可以添加图例  
+legend("bottomright", legend=c("Logistic regression", "Random forest","Laaso"), col=c("#c04851", "#15559a","#6B6B6B"),lwd=2,cex = 0.5)
+
+
+
+results <- data.frame(Accuracy = accuracy, Sensitivity = sensitivity, Specificity = specificity, AUC = auc_value)
+print(results)
+
+
+# 保留三位小数
+results <- as.data.frame(lapply(results, function(x) round(x, 3)))
+
+# 打印结果
+print(results)
+
+#################################
+
+########################################LASSO Tuning ##############
+# # Replace existing LASSO code with:
+# lasso_model <- train(
+#   dm_cat ~ .,
+#   data = trainData,
+#   method = "glmnet",
+#   family = "binomial",
+#   tuneGrid = expand.grid(
+#     alpha = 1,  # Pure LASSO
+#     lambda = 10^seq(-3, 0, length = 20)
+#   ),
+#   trControl = trainControl(
+#     method = "cv",
+#     number = 10,
+#     selectionFunction = "oneSE",  # 1-SE rule
+#     classProbs = TRUE,
+#     summaryFunction = twoClassSummary
+#   ),
+#   metric = "ROC"
+# )
+# 
+# # Print lambda selection
+# cat("LASSO lambda (1-SE rule):", lasso_model$bestTune$lambda, "\n")
+
+
+##########################################神经网络——ltask1_平衡数据
+# 设置随机种子
+set.seed(199)#123#199
+#平衡训练集数据
+task1_data2 = SMOTE(dm_cat ~ ., 
+                    task1_data, 
+                    k=5,#用于生成少数类别新实例的近邻个数。
+                    perc.over = 100,#用于决定从少数群体中产生多少额外案例130
+                    perc.under= 200)#决定从少数群体中生成的每个案例要从多数群体中选择多少额外案例
+
+set.seed(000012)#123#1260.79#2327,0.76#2366,0.82,#2368,0.83，9995，0.777#000012
+
+trainIndex <- createDataPartition(task1_data2$dm_cat, p = 0.9, 
+                                  list = FALSE, 
+                                  times = 1)
+trainData <- task1_data2[trainIndex, ]
+testData <- task1_data2[-trainIndex, ]
+
+# 改为数值型
+#task1_data2[,c(1:12)] <-lapply(task1_data2[,c(1:12)],as.numeric)#-1
+str(task1_data2)
+
+trainData[,c(1:12)] <-lapply(trainData[,c(1:12)],as.numeric)#-1
+trainData[,c(1:12)] <-lapply(trainData[,c(1:12)]-1,as.numeric)#-1
+
+testData[,c(1:12)] <-lapply(testData[,c(1:12)],as.numeric)#-1
+testData[,c(1:12)] <-lapply(testData[,c(1:12)]-1,as.numeric)#-1
+#####建立神经网络模型
+nn_model <- neuralnet(dm_cat ~ ., 
+                      data = trainData, 
+                      hidden = c(5), 
+                      linear.output = FALSE)
+
+# 预测
+pred_prob <- predict(nn_model, newdata = testData)
+pred_class <- ifelse(pred_prob > 0.5, 1, 0)
+
+# 评估模型性能
+conf_matrix <- confusionMatrix(as.factor(pred_class), as.factor(testData$dm_cat))
+accuracy <- conf_matrix$overall['Accuracy']
+sensitivity <- conf_matrix$byClass['Sensitivity']
+specificity <- conf_matrix$byClass['Specificity']
+
+# 计算AUC值
+roc_neuralnet <- roc(testData$dm_cat, pred_prob)
+auc_value <- auc(roc_neuralnet)
+# 打印模型性能
+results <- data.frame(Accuracy = accuracy, Sensitivity = sensitivity, Specificity = specificity, AUC = auc_value)
+# 保留三位小数
+results <- as.data.frame(lapply(results, function(x) round(x, 3)))
+# 打印结果
+print(results)
+
+
+#####################################################################################NN95%
+
+
+
+
+################### Add Precision-Recall Metrics############
+# Add to existing evaluation code
+# Calculate precision-recall AUC
+pr_auc <- pr.curve(
+  scores.class0 = pred_prob[testData$dm_cat == 1],
+  scores.class1 = pred_prob[testData$dm_cat == 0],
+  curve = TRUE
+)
+
+# Update results dataframe
+results <- data.frame(
+  Accuracy = accuracy,
+  Sensitivity = sensitivity,
+  Specificity = specificity,
+  ROC_AUC = auc_value,
+  PR_AUC = pr_auc$auc.integral,
+  F1_Score = confusionMatrix$byClass['F1']
+)
+results
+#################################################3
+
+
+# ROC and Precision-Recall Analysis
+Recall_task1_NN <- pr.curve(scores.class0 = pred_prob[testData$dm_cat == 1],
+                            scores.class1 = pred_prob[testData$dm_cat == 0],
+                            curve = TRUE)
+
+Recall_task1_NN
+plot(Recall_task1_NN, col = "#FAAE5F", main = "Precision Recall Curve ", lwd = 2,)
+legend("bottomright", legend=c("Neural network PR(AUC=0.821)"), col=c("#FAAE5F"),lwd=2,cex = 0.7)
+
+
+# 
+# plot(roc_task1_log, main = "task1 ROC")
+# plot(roc_task1_log, col = "#c04851", main = "task1 ROC", lwd = 2,)
+# # 在同一图上添加第二个ROC曲线  
+# lines(roc_randomForest, col="#15559a", lwd=2) 
+# lines(roc_lasso, col="#6B6B6B", lwd=2) 
+# lines(roc_neuralnet, col="#FAAE5F", lwd=2) 
+# # 可以添加图例  
+# 
+# legend("bottomright", legend=c("Logistic regression(AUC=0.839)", "Random forest(AUC=0.817)","LASSO(AUC=0.840)","Neural network(AUC=0.751)"),
+#        col=c("#c04851", "#15559a","#6B6B6B","#FAAE5F"),lwd=2,cex = 0.7)
+
+
+q1
+
+print(q1)
+plot(1 - roc_task1_log$specificities, roc_task1_log$sensitivities, type = "l", col = "#c04851", lwd = 2, xlab = "1 - Specificity", ylab = "Sensitivity", main = "Task 1 ROC")
+lines(1 - roc_randomForest$specificities, roc_randomForest$sensitivities, col = "#15559a", lwd = 2)
+lines(1 - roc_lasso$specificities, roc_lasso$sensitivities, col = "#6B6B6B", lwd = 2)
+lines(1 - roc_neuralnet$specificities, roc_neuralnet$sensitivities, col = "#FAAE5F", lwd = 2)
+
+legend("bottomright", legend=c("Logistic regression(AUC=0.839)", "Random forest(AUC=0.817)","LASSO(AUC=0.840)","Neural network(AUC=0.751)"), 
+       col=c("#c04851", "#15559a","#6B6B6B","#FAAE5F"),lwd=2,cex = 0.7)
+
+######################################################################3
+#########################Neural Network Architecture#######
+# summary(trainData)
+# 
+# # Before any modeling code, ensure dm_cat is a proper factor
+# trainData$dm_cat <- factor(trainData$dm_cat, 
+#                            levels = c(0, 1), 
+#                            labels = c("No_DM", "DM"))
+# 
+# testData$dm_cat <- factor(testData$dm_cat,
+#                           levels = c(0, 1),
+#                           labels = c("No_DM", "DM"))
+# 
+# # Verify the conversion
+# cat("Class distribution in training data:\n")
+# print(table(trainData$dm_cat))
+# 
+# # Replace existing neural network code with:
+# nnet_grid <- expand.grid(
+#   size = c(3, 5, 7),       # Number of units in hidden layer
+#   decay = c(0.001, 0.01, 0.1)  # Weight decay (L2 regularization)
+# )
+# 
+# set.seed(123)
+# nn_model <- train(
+#   dm_cat ~ .,
+#   data = trainData,
+#   method = "nnet",
+#   tuneGrid = nnet_grid,
+#   trControl = trainControl(
+#     method = "cv",
+#     number = 5,
+#     classProbs = TRUE,
+#     summaryFunction = twoClassSummary
+#   ),
+#   metric = "ROC",
+#   trace = FALSE,
+#   maxit = 200,
+#   linout = FALSE  # For classification
+# )
+# 
+# # Print optimal architecture
+# cat("Optimal NN architecture:\n")
+# print(nn_model$bestTune)
+
+
+
+
+#################################################################岭回归
+# 加载包
+set.seed(199)#123#199
+#平衡训练集数据
+task1_data2 = SMOTE(dm_cat ~ ., 
+                    task1_data, 
+                    k=5,#用于生成少数类别新实例的近邻个数。
+                    perc.over = 100,#用于决定从少数群体中产生多少额外案例130
+                    perc.under= 200)#决定从少数群体中生成的每个案例要从多数群体中选择多少额外案例
+
+
+
+# 分割数据集为训练集和测试集
+set.seed(23)
+trainIndex <- createDataPartition(task1_data2$dm_cat, p = .9,
+                                  list = FALSE,
+                                  times = 1)
+trainData <- task1_data2[trainIndex, ]
+testData <- task1_data2[-trainIndex, ]
+# 
+# str(task1_data2)
+# 准备数据
+x_train <- as.matrix(trainData[,-12])
+y_train <- trainData$dm_cat
+x_test <- as.matrix(testData[,-12])
+y_test <- testData$dm_cat
+
+# 训练Ridge回归模型
+ridge_model <- cv.glmnet(x_train, y_train, alpha = 0, family = "binomial")
+
+# 预测
+pred_prob <- predict(ridge_model, s = "lambda.min", newx = x_test, type = "response")
+pred_class <- ifelse(pred_prob > 0.5, 1, 0)
+
+# 计算准确度、敏感性、特异性
+confusionMatrix <- confusionMatrix(as.factor(pred_class), as.factor(y_test))
+accuracy <- confusionMatrix$overall['Accuracy']
+sensitivity <- confusionMatrix$byClass['Sensitivity']
+specificity <- confusionMatrix$byClass['Specificity']
+
+# 计算AUC值
+roc_ridge <- roc(y_test, pred_prob)
+auc_value <- auc(roc_ridge)
+
+# 输出结果
+cat("Accuracy:", accuracy, "\n")
+cat("Sensitivity:", sensitivity, "\n")
+cat("Specificity:", specificity, "\n")
+cat("AUC:", auc_value, "\n")
+############################################################################333#9岭回归95%
+
+
+################### Add Precision-Recall Metrics############
+# Add to existing evaluation code
+# Calculate precision-recall AUC
+pr_auc <- pr.curve(
+  scores.class0 = pred_prob[testData$dm_cat == 1],
+  scores.class1 = pred_prob[testData$dm_cat == 0],
+  curve = TRUE
+)
+
+# Update results dataframe
+results <- data.frame(
+  Accuracy = accuracy,
+  Sensitivity = sensitivity,
+  Specificity = specificity,
+  ROC_AUC = auc_value,
+  PR_AUC = pr_auc$auc.integral,
+  F1_Score = confusionMatrix$byClass['F1']
+)
+results
+
+
+# ROC and Precision-Recall Analysis
+Recall_task1_ridge <- pr.curve(scores.class0 = pred_prob[testData$dm_cat == 1],
+                               scores.class1 = pred_prob[testData$dm_cat == 0],
+                               curve = TRUE)
+
+Recall_task1_ridge
+plot(Recall_task1_ridge, col = "#000000", main = "Precision Recall Curve ", lwd = 2,)
+legend("bottomright", legend=c("Ridge regression PR(AUC=0.765)"), col=c("#000000"),lwd=2,cex = 0.7)
+
+
+
+#################################################3
+plot(1 - roc_task1_log$specificities, roc_task1_log$sensitivities, type = "l", col = "#c04851", lwd = 2, xlab = "1 - Specificity", ylab = "Sensitivity", main = "Task 1 ROC")
+lines(1 - roc_randomForest$specificities, roc_randomForest$sensitivities, col = "#15559a", lwd = 2)
+lines(1 - roc_lasso$specificities, roc_lasso$sensitivities, col = "#6B6B6B", lwd = 2)
+lines(1 - roc_neuralnet$specificities, roc_neuralnet$sensitivities, col = "#FAAE5F", lwd = 2)
+lines(1 - roc_ridge$specificities, roc_ridge$sensitivities, col = "#000000", lwd = 2)
+
+legend("bottomright", legend=c("Logistic regression(AUC=0.760)", "Random forest(AUC=0.772)","LASSO(AUC=0.783)",
+                               "Neural network(AUC=0.790)","Ridge regression(AUC=0.751)"), 
+       col=c("#c04851", "#15559a","#6B6B6B","#FAAE5F","#000000"),lwd=2,cex = 0.7)
+
+
+####################################################
+delong_test <- roc.test(roc_task1_log, roc_randomForest, method="delong")
+delong_test2 <- roc.test(roc_task1_log, roc_lasso, method="delong")
+delong_test3 <- roc.test(roc_task1_log, roc_neuralnet, method="delong")
+delong_test4 <- roc.test(roc_task1_log, roc_ridge, method="delong")
+
+delong_test
+delong_test2
+delong_test3
+delong_test4
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#####################################################
+#################### Add Precision-Recall Metrics############
+# Add to existing evaluation code
+library(PRROC)
+
+# Calculate precision-recall AUC
+pr_auc <- pr.curve(
+  scores.class0 = pred_prob[testData$dm_cat == 1],
+  scores.class1 = pred_prob[testData$dm_cat == 0],
+  curve = TRUE
+)
+
+# Update results dataframe
+results <- data.frame(
+  Accuracy = accuracy,
+  Sensitivity = sensitivity,
+  Specificity = specificity,
+  ROC_AUC = auc_value,
+  PR_AUC = pr_auc$auc.integral,
+  F1_Score = confusionMatrix$byClass['F1']
+)
+results
+
+#########################Threshold Optimization ################
+# Replace simple 0.5 threshold with optimized threshold
+library(pROC)
+optimal_threshold <- coords(roc_neuralnet, "best", ret = "threshold")$threshold
+pred_class <- ifelse(pred_prob > optimal_threshold, 1, 0)
+
+cat("Optimal threshold:", round(optimal_threshold, 3), "\n")
+###################################33
+
+# # 绘制ROC曲线
+# plot(1 - roc_neuralnet$specificities, roc_neuralnet$sensitivities, type = "l", col = "#15559a", lwd = 2, 
+#      xlab = "1 - Specificity", ylab = "Sensitivity", main = "Task 1 ROC")
+# lines(1 - roc_task1_log$specificities, roc_task1_log$sensitivities, col = "#c04851", lwd = 2)
+# lines(1 - roc_randomForest$specificities, roc_randomForest$sensitivities, col = "#15559a", lwd = 2, lty = 2)
+# lines(1 - roc_lasso$specificities, roc_lasso$sensitivities, col = "#c04851", lwd = 2, lty = 2)
+# 
+# legend("bottomright", legend=c("Logistic regression(AUC=0.746)", "Random forest(AUC=0.804)","LASSO(AUC=0.770)","Neural network(AUC=0.811)"), col=c("#c04851", "#15559a","#c04851","#15559a"),lty = c(1,2,2,1),lwd=2,cex = 0.5)
+
+########################################################
+
+# ROC and Precision-Recall Analysis
+roc_obj <- roc(testData$dm_cat, pred_prob)
+pr_obj <- pr.curve(scores.class0 = pred_prob[testData$dm_cat == 1],
+                   scores.class1 = pred_prob[testData$dm_cat == 0],
+                   curve = TRUE)
+
+pr_obj
+roc_obj
+summary(testData)
+
+plot(pr_obj)
+
+############################################3
+
+library(pROC)
+
+delong_test <- roc.test(roc_neuralnet, roc_task1_log, method="delong")
+delong_test2 <- roc.test(roc_lasso, roc_task1_log, method="delong")
+delong_test3 <- roc.test(roc_randomForest, roc_task1_log, method="delong")
+delong_test
+delong_test2
+delong_test3
+
+# 计算AUC及其95%置信区间
+auc_with_ci <- ci.auc(roc_task1_log, conf.level = 0.95)
+auc_with_ci <- ci.auc(roc_neuralnet, conf.level = 0.95)
+# 输出结果
+print(auc_with_ci)
+######################################################################################6.27
+
+# Split data into training and testing sets (stratified by outcome)
+trainIndex <- createDataPartition(task1_data2$dm_cat, 
+                                  p = 0.9, 
+                                  list = FALSE, 
+                                  times = 1)
+trainData <- task1_data2[trainIndex, ]
+testData <- task1_data2[-trainIndex, ]
+
+# Store predictions from all models for comparison
+all_predictions <- data.frame(
+  true_class = testData$dm_cat,
+  neuralnet = numeric(nrow(testData)),
+  logistic = numeric(nrow(testData)),
+  randomforest = numeric(nrow(testData)),
+  lasso = numeric(nrow(testData))
+)
+
+# Function to train and evaluate neural network
+train_eval_nn <- function(data, test_data) {
+  nn_model <- neuralnet(dm_cat ~ ., 
+                        data = data,
+                        hidden = c(5),
+                        linear.output = FALSE)
+  
+  pred_prob <- predict(nn_model, newdata = test_data)
+  return(pred_prob)
+}
+
+# Train neural network
+nn_pred_prob <- train_eval_nn(trainData, testData)
+all_predictions$neuralnet <- nn_pred_prob
+
+# Convert probabilities to class predictions
+nn_pred_class <- ifelse(nn_pred_prob > 0.5, 1, 0)
+
+# Evaluate neural network performance
+nn_conf_matrix <- confusionMatrix(as.factor(nn_pred_class), 
+                                  as.factor(testData$dm_cat))
+nn_accuracy <- nn_conf_matrix$overall['Accuracy']
+nn_sensitivity <- nn_conf_matrix$byClass['Sensitivity']
+nn_specificity <- nn_conf_matrix$byClass['Specificity']
+
+# Calculate AUC
+nn_roc <- roc(testData$dm_cat, nn_pred_prob)
+nn_auc <- auc(nn_roc)
+
+# Store results
+results <- data.frame(
+  Model = "Neural Network",
+  Accuracy = round(nn_accuracy, 3),
+  Sensitivity = round(nn_sensitivity, 3),
+  Specificity = round(nn_specificity, 3),
+  AUC = round(nn_auc, 3)
+)
+
+
+
+# Statistical comparisons -------------------------------------------------
+
+# 1. DeLong's test for ROC curve comparisons
+compare_models <- function(pred1, pred2, true, model1_name, model2_name) {
+  roc1 <- roc(true, pred1)
+  roc2 <- roc(true, pred2)
+  delong_test <- roc.test(roc1, roc2, method = "delong")
+  
+  data.frame(
+    Comparison = paste(model1_name, "vs", model2_name),
+    AUC_diff = round(auc(roc1) - auc(roc2), 3),
+    p_value = round(delong_test$p.value, 4)
+  )
+}
+
+# Example comparisons (replace with your actual model predictions)
+model_comparisons <- rbind(
+  compare_models(all_predictions$neuralnet, all_predictions$logistic, 
+                 all_predictions$true_class, "NeuralNet", "Logistic"),
+  compare_models(all_predictions$neuralnet, all_predictions$randomforest, 
+                 all_predictions$true_class, "NeuralNet", "RandomForest"),
+  compare_models(all_predictions$neuralnet, all_predictions$lasso, 
+                 all_predictions$true_class, "NeuralNet", "LASSO")
+)
+
+
+
+print(model_comparisons)
+
+
+
+
+
+
+
+
+
+
